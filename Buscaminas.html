@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buscaminas con Solucionador de IA</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f0f0f0;
+            font-family: 'Arial', sans-serif;
+        }
+        .game-container {
+            max-width: 500px;
+            margin: 2rem auto;
+            padding: 1rem;
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 2px;
+            margin-top: 1rem;
+        }
+        .cell {
+            width: 100%;
+            aspect-ratio: 1;
+            border: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .cell:hover {
+            background-color: #f0f0f0;
+        }
+        .cell.revealed {
+            background-color: #e0e0e0;
+        }
+        .cell.mine {
+            background-color: #ff4136;
+            color: white;
+        }
+        .cell.flagged {
+            background-color: #ffdc00;
+        }
+        @keyframes reveal {
+            0% { transform: scale(0.1); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .cell.revealed {
+            animation: reveal 0.3s ease-out;
+        }
+        .cell.ai-focus {
+            box-shadow: 0 0 0 2px #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="game-container">
+            <h1 class="text-center mb-4">Buscaminas con Solucionador de IA</h1>
+            <div class="d-flex justify-content-between mb-3">
+                <button id="newGame" class="btn btn-primary">Nuevo Juego</button>
+                <button id="aiSolve" class="btn btn-success">IA Resuelve</button>
+                <div>
+                    <span id="flagCount" class="badge bg-warning text-dark me-2">Banderas: 10</span>
+                    <span id="timer" class="badge bg-info">Tiempo: 0s</span>
+                </div>
+            </div>
+            <div id="grid" class="grid"></div>
+            <div id="gameOver" class="mt-3 text-center" style="display: none;">
+                <h2 id="gameOverMessage"></h2>
+                <button id="restartGame" class="btn btn-success">Jugar de Nuevo</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const gridSize = 10;
+        const totalMines = 10;
+        let grid = [];
+        let mineLocations = [];
+        let flaggedCells = 0;
+        let revealedCells = 0;
+        let gameActive = false;
+        let timer = 0;
+        let timerInterval;
+
+        function createGrid() {
+            const gridElement = document.getElementById('grid');
+            gridElement.innerHTML = '';
+            grid = [];
+            mineLocations = [];
+            flaggedCells = 0;
+            revealedCells = 0;
+            gameActive = true;
+            timer = 0;
+            updateFlagCount();
+            updateTimer();
+
+            for (let i = 0; i < gridSize; i++) {
+                grid[i] = [];
+                for (let j = 0; j < gridSize; j++) {
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell');
+                    cell.dataset.row = i;
+                    cell.dataset.col = j;
+                    cell.addEventListener('click', () => revealCell(i, j));
+                    cell.addEventListener('contextmenu', (e) => {
+                        e.preventDefault();
+                        flagCell(i, j);
+                    });
+                    gridElement.appendChild(cell);
+                    grid[i][j] = {
+                        element: cell,
+                        isMine: false,
+                        isRevealed: false,
+                        isFlagged: false,
+                        neighborMines: 0
+                    };
+                }
+            }
+
+            placeMines();
+            calculateNeighborMines();
+            startTimer();
+        }
+
+        function placeMines() {
+            let minesPlaced = 0;
+            while (minesPlaced < totalMines) {
+                const row = Math.floor(Math.random() * gridSize);
+                const col = Math.floor(Math.random() * gridSize);
+                if (!grid[row][col].isMine) {
+                    grid[row][col].isMine = true;
+                    mineLocations.push({row, col});
+                    minesPlaced++;
+                }
+            }
+        }
+
+        function calculateNeighborMines() {
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    if (!grid[i][j].isMine) {
+                        grid[i][j].neighborMines = countNeighborMines(i, j);
+                    }
+                }
+            }
+        }
+
+        function countNeighborMines(row, col) {
+            let count = 0;
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    const newRow = row + i;
+                    const newCol = col + j;
+                    if (newRow >= 0 && newRow < gridSize && newCol >= 0 && newCol < gridSize) {
+                        if (grid[newRow][newCol].isMine) {
+                            count++;
+                        }
+                    }
+                }
+            }
+            return count;
+        }
+
+        function revealCell(row, col) {
+            if (!gameActive || grid[row][col].isRevealed || grid[row][col].isFlagged) return;
+
+            grid[row][col].isRevealed = true;
+            revealedCells++;
+            grid[row][col].element.classList.add('revealed');
+
+            if (grid[row][col].isMine) {
+                gameOver(false);
+                return;
+            }
+
+            if (grid[row][col].neighborMines > 0) {
+                grid[row][col].element.textContent = grid[row][col].neighborMines;
+                grid[row][col].element.classList.add(`text-${getNumberColor(grid[row][col].neighborMines)}`);
+            } else {
+                revealNeighbors(row, col);
+            }
+
+            if (revealedCells + totalMines === gridSize * gridSize) {
+                gameOver(true);
+            }
+        }
+
+        function revealNeighbors(row, col) {
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    const newRow = row + i;
+                    const newCol = col + j;
+                    if (newRow >= 0 && newRow < gridSize && newCol >= 0 && newCol < gridSize) {
+                        if (!grid[newRow][newCol].isRevealed && !grid[newRow][newCol].isFlagged) {
+                            revealCell(newRow, newCol);
+                        }
+                    }
+                }
+            }
+        }
+
+        function flagCell(row, col) {
+            if (!gameActive || grid[row][col].isRevealed) return;
+
+            if (grid[row][col].isFlagged) {
+                grid[row][col].isFlagged = false;
+                grid[row][col].element.classList.remove('flagged');
+                grid[row][col].element.innerHTML = '';
+                flaggedCells--;
+            } else if (flaggedCells < totalMines) {
+                grid[row][col].isFlagged = true;
+                grid[row][col].element.classList.add('flagged');
+                grid[row][col].element.innerHTML = '<i class="fas fa-flag"></i>';
+                flaggedCells++;
+            }
+
+            updateFlagCount();
+        }
+
+        function gameOver(isWin) {
+            gameActive = false;
+            clearInterval(timerInterval);
+            
+            if (isWin) {
+                document.getElementById('gameOverMessage').textContent = 'You Win!';
+            } else {
+                document.getElementById('gameOverMessage').textContent = 'Game Over!';
+                revealAllMines();
+            }
+
+            document.getElementById('gameOver').style.display = 'block';
+        }
+
+        function revealAllMines() {
+            mineLocations.forEach(({row, col}) => {
+                grid[row][col].element.classList.add('mine');
+                grid[row][col].element.innerHTML = '<i class="fas fa-bomb"></i>';
+            });
+        }
+
+        function getNumberColor(number) {
+            const colors = ['primary', 'success', 'danger', 'info', 'warning', 'secondary', 'dark', 'primary'];
+            return colors[number - 1] || 'dark';
+        }
+
+        function updateFlagCount() {
+            document.getElementById('flagCount').textContent = `Flags: ${totalMines - flaggedCells}`;
+        }
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timer++;
+                updateTimer();
+            }, 1000);
+        }
+
+        function updateTimer() {
+            document.getElementById('timer').textContent = `Time: ${timer}s`;
+        }
+
+        // AI Solver functions
+        async function aiSolve() {
+            if (!gameActive) return;
+
+            const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+            // First move: reveal a random cell
+            let initialRow = Math.floor(Math.random() * gridSize);
+            let initialCol = Math.floor(Math.random() * gridSize);
+            await highlightAndReveal(initialRow, initialCol);
+
+            while (gameActive && revealedCells + totalMines < gridSize * gridSize) {
+                let moved = false;
+
+                // Look for safe moves
+                for (let i = 0; i < gridSize; i++) {
+                    for (let j = 0; j < gridSize; j++) {
+                        if (grid[i][j].isRevealed && grid[i][j].neighborMines > 0) {
+                            const flaggedNeighbors = countFlaggedNeighbors(i, j);
+                            const unrevealedNeighbors = countUnrevealedNeighbors(i, j);
+
+                            if (grid[i][j].neighborMines === flaggedNeighbors) {
+                                // All mines are flagged, reveal remaining neighbors
+                                if (await revealSafeNeighbors(i, j)) {
+                                    moved = true;
+                                    break;
+                                }
+                            } else if (unrevealedNeighbors === grid[i][j].neighborMines - flaggedNeighbors) {
+                                // All unrevealed neighbors are mines, flag them
+                                if (await flagRemainingNeighbors(i, j)) {
+                                    moved = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (moved) break;
+                }
+
+                if (!moved) {
+                    // If no safe move found, make a guess
+                    await makeGuess();
+                }
+
+                await delay(300); // Add a delay between moves for visual effect
+            }
+        }
+
+        async function highlightAndReveal(row, col) {
+            grid[row][col].element.classList.add('ai-focus');
+            await new Promise(resolve => setTimeout(resolve, 300));
+            revealCell(row, col);
+            grid[row][col].element.classList.remove('ai-focus');
+        }
+
+        async function highlightAndFlag(row, col) {
+            grid[row][col].element.classList.add('ai-focus');
+            await new Promise(resolve => setTimeout(resolve, 300));
+            flagCell(row, col);
+            grid[row][col].element.classList.remove('ai-focus');
+        }
+
+        function countFlaggedNeighbors(row, col) {
+            let count = 0;
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    const newRow = row + i;
+                    const newCol = col + j;
+                    if (newRow >= 0 && newRow < gridSize && newCol >= 0 && newCol < gridSize) {
+                        if (grid[newRow][newCol].isFlagged) {
+                            count++;
+                        }
+                    }
+                }
+            }
+            return count;
+        }
+
+        function countUnrevealedNeighbors(row, col) {
+            let count = 0;
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    const newRow = row + i;
+                    const newCol = col + j;
+                    if (newRow >= 0 && newRow < gridSize && newCol >= 0 && newCol < gridSize) {
+                        if (!grid[newRow][newCol].isRevealed && !grid[newRow][newCol].isFlagged) {
+                            count++;
+                        }
+                    }
+                }
+            }
+            return count;
+        }
+
+        async function revealSafeNeighbors(row, col) {
+            let revealed = false;
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    const newRow = row + i;
+                    const newCol = col + j;
+                    if (newRow >= 0 && newRow < gridSize && newCol >= 0 && newCol < gridSize) {
+                        if (!grid[newRow][newCol].isRevealed && !grid[newRow][newCol].isFlagged) {
+                            await highlightAndReveal(newRow, newCol);
+                            revealed = true;
+                        }
+                    }
+                }
+            }
+            return revealed;
+        }
+
+        async function flagRemainingNeighbors(row, col) {
+            let flagged = false;
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    const newRow = row + i;
+                    const newCol = col + j;
+                    if (newRow >= 0 && newRow < gridSize && newCol >= 0 && newCol < gridSize) {
+                        if (!grid[newRow][newCol].isRevealed && !grid[newRow][newCol].isFlagged) {
+                            await highlightAndFlag(newRow, newCol);
+                            flagged = true;
+                        }
+                    }
+                }
+            }
+            return flagged;
+        }
+
+        async function makeGuess() {
+            const unrevealedCells = [];
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    if (!grid[i][j].isRevealed && !grid[i][j].isFlagged) {
+                        unrevealedCells.push({row: i, col: j});
+                    }
+                }
+            }
+
+            if (unrevealedCells.length > 0) {
+                const randomIndex = Math.floor(Math.random() * unrevealedCells.length);
+                const {row, col} = unrevealedCells[randomIndex];
+                await highlightAndReveal(row, col);
+            }
+        }
+
+        document.getElementById('newGame').addEventListener('click', createGrid);
+        document.getElementById('restartGame').addEventListener('click', () => {
+            document.getElementById('gameOver').style.display = 'none';
+            createGrid();
+        });
+        document.getElementById('aiSolve').addEventListener('click', aiSolve);
+
+        createGrid();
+    </script>
+</body>
+</html>
